@@ -73,26 +73,61 @@ def ldap_search(ldapobj, basedn, scope, filter, attrlist):
     result_set = (ldapobj.search_s(basedn, scope, filter, attrlist))
     return result_set
 
-def get_contextCSN(ldapobj, basedn, logger=None):
+def get_contextCSN(ldapobj, basedn, logger=None, serverid=False):
     result_list = ldap_search(ldapobj, basedn, ldap.SCOPE_BASE, '(objectclass=*)', ['contextCSN'])
+
     if "contextCSN" in result_list[0][1]:
-        if logger:
-            logger.debug("contextCSN = %s" % result_list[0][1]["contextCSN"][0])
-        return result_list[0][1]["contextCSN"][0]
+        CSNs = result_list[0][1]["contextCSN"]
+
+        if serverid is False:
+            if logger:
+                logger.debug("contextCSN = %s" % CSNs[0])
+
+            return result_list[0][1]["contextCSN"][0]
+
+        else:
+            csnid = str(format(serverid, "X")).zfill(3)
+            sub = "#%s#" % csnid
+            CSN = [s for s in CSNs if sub in s.decode()]
+
+            if not CSN:
+                logging.error("No contextCSN matching with ServerID %s (=%s) could be found." % (serverid,sub))
+                return False
+            else:
+                logger.debug("contextCSN = %s" % CSN[0])
+                return CSN[0]
+
     else:
         if logger:
             logger.error("No contextCSN was found")
+
         return None
+
     pass
 
-def is_insynch(provldapobj, consldapobj, basedn, threshold=None, logger=None):
+def is_insynch(provldapobj, consldapobj, basedn, threshold=None, logger=None, serverid=False):
     if logger:
         logger.debug("Retrieving Provider contextCSN")
-    provcontextCSN = get_contextCSN(provldapobj, basedn, logger)
+    provcontextCSN = get_contextCSN(provldapobj, basedn, logger, serverid)
 
     if logger:
         logger.debug("Retrieving Consumer contextCSN")
-    conscontextCSN = get_contextCSN(consldapobj, basedn, logger)
+    conscontextCSN = get_contextCSN(consldapobj, basedn, logger, serverid)
+
+    if (provcontextCSN and conscontextCSN):
+        if (provcontextCSN == conscontextCSN):
+            if logger:
+                logger.info("Provider and consumer exactly in SYNCH")
+
+            print("OK - Provider and consumer exactly in SYNCH")
+
+            return True
+    else:
+        if logger:
+            logger.error(" Check failed: at least one contextCSN value is missing")
+
+        print("Check failed: at least one contextCSN value is missing")
+
     return False
 
 def main():
@@ -136,6 +171,13 @@ def main():
                     default="",
                     help="""Bind password""")
 
+    parser.add_option("-i", "--serverID",
+                    dest="serverid",
+                    action="store",
+                    type='int',
+                    help="Compare contextCSN of a specific master. Useful in MultiMaster setups where each master has a unique ID and a contextCSN for each replicated master exists. A valid serverID is a integer value from 0 to 4095 (limited to 3 hex digits, example: '12' compares the contextCSN matching '#00C#')",
+                    default=False)
+
     (options, args) = parser.parse_args()
 
     if not options.quiet:
@@ -144,6 +186,7 @@ def main():
         logger = None
 
     if logger:
+        logger.info("====== begin ======")
         logger.info("Provider is: %s" % re.sub("^.*\/\/", "", args[0]))
 
     ldapprov = ldap_connect(args.pop(0), logger, options.binddn, options.password)
@@ -155,7 +198,7 @@ def main():
             ldapcons = ldap_connect(consumer, logger, options.binddn, options.password)
 
             if ldapcons:
-                IsInSync = IsInSync and is_insynch(ldapprov, ldapcons, options.basedn, options.threshold, logger)
+                IsInSync = IsInSync and is_insynch(ldapprov, ldapcons, options.basedn, options.threshold, logger, options.serverid)
                 ldapcons.unbind_s()
             else:
                 sys.exit()
