@@ -1,9 +1,14 @@
+#!/usr/bin/env python3
+
 import logging
+import lxml
 import os
 import requests
 import sys
 
-pt_url = "xxxxxxxx"
+from bs4 import BeautifulSoup
+
+pt_url = "https://pt.soulvoice.club/attendance.php"
 
 headers = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -42,6 +47,7 @@ def create_logger(application, verbose=None, logfile=None):
 
   return logger
 
+
 logger = create_logger(os.path.basename(sys.argv[0]), "False", "/data/tools/pt.log")
 
 with open("/data/tools/cookies_soulvoice.txt") as f:
@@ -52,3 +58,9 @@ try:
     logger.info("OK")
 except requests.exceptions.Timeout as e:
     logger.info("timeout %s" % e)
+
+res = r.text
+soup = BeautifulSoup(res, "lxml")
+messages = soup.find_all("p")
+message = messages[0].get_text()
+logger.info(message)
