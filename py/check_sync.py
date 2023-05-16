@@ -2,11 +2,13 @@
 # https://github.com/tart/tart-monitoring/blob/master/check_syncrepl.py#L184
 # check in python 3.10 and openldap 2.4.54
 
+import json
 import ldap
 import logging
 import os
 import sys
 import re
+import requests
 from optparse import OptionParser
 
 def create_logger(application, verbose=None, logfile=None):
@@ -34,6 +36,26 @@ def create_logger(application, verbose=None, logfile=None):
         logger.addHandler(fh)
 
     return logger
+
+def create_alert(instance):
+    info = [
+        {
+            "labels": {
+                "alertname": "LDAP同步异常",
+                "instance": instance
+            },
+            "annotations": {
+                "info": "LDAP同步异常",
+                "summary": "请检查实例"
+            }
+        }
+    ]
+
+    headers = {"Content-Type": "application/json"}
+    jsons = json.dumps(info)
+    alert_url = "http://127.0.0.1:9093/api/v2/alerts"
+    r = requests.post(alert_url, headers=headers, data=jsons)
+    return True
 
 def ldap_connect(ldapuri, logger=None, binddn="", bindpw=""):
     ldap.set_option(ldap.OPT_DEBUG_LEVEL, 0)
@@ -118,16 +140,13 @@ def is_insynch(provldapobj, consldapobj, basedn, threshold=None, logger=None, se
         if (provcontextCSN == conscontextCSN):
             if logger:
                 logger.info("Provider and consumer exactly in SYNCH")
-
-            print("OK - Provider and consumer exactly in SYNCH")
-
             return True
+        else:
+            return False
     else:
         if logger:
             logger.error(" Check failed: at least one contextCSN value is missing")
-
         print("Check failed: at least one contextCSN value is missing")
-
     return False
 
 def main():
@@ -200,11 +219,12 @@ def main():
             if ldapcons:
                 IsInSync = IsInSync and is_insynch(ldapprov, ldapcons, options.basedn, options.threshold, logger, options.serverid)
                 ldapcons.unbind_s()
+                print(IsInSync)
+                if not IsInSync:
+                    create_alert(consumer)
             else:
                 sys.exit()
-
         ldapprov.unbind_s()
-
     else:
         sys.exit(1)
 
