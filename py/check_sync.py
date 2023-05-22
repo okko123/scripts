@@ -9,6 +9,7 @@ import os
 import sys
 import re
 import requests
+import yaml
 from optparse import OptionParser
 
 def create_logger(application, verbose=None, logfile=None):
@@ -42,11 +43,14 @@ def create_alert(instance):
         {
             "labels": {
                 "alertname": "LDAP同步异常",
-                "instance": instance
+                "instance": instance,
+                "severity": "critical",
+                "service": "OpenLDAP"
             },
             "annotations": {
                 "info": "LDAP同步异常",
-                "summary": "请检查实例"
+                "summary": "请检查实例",
+                "env": "stage"
             }
         }
     ]
@@ -152,79 +156,39 @@ def is_insynch(provldapobj, consldapobj, basedn, threshold=None, logger=None, se
 def main():
     IsInSync = True;
 
-    usage = "\n  " + sys.argv[0] + """ [options] providerLDAPURI consumerLDAPURI ...
-    This script takes at least two arguments:
-          - providerLDAPURI is the provider LDAP URI (as defined in RFC2255)
-          - consumerLDAPURI is the consumer LDAP URI (as defined in RFC2255)
-    Additional consumer LDAP URIs can be specified.
-    """
+    with open("config.yaml", "r") as f:
+        configs = yaml.load(f.read(), Loader=yaml.FullLoader)
 
-    parser = OptionParser(usage = usage)
-    parser.add_option("-v", "--verbose", dest="verbose", action="store_true",
-                      default=False,
-                      help="""Enable more verbose output""")
+    usage = "\n  " + sys.argv[0]
 
-    parser.add_option("-q", "--quiet", dest="quiet", action="store_true",
-                      default=False,
-                      help="""Disable console and file logging""")
-
-    parser.add_option("-l", "--logfile", dest="logfile", default=re.sub("\.[^\.]*$", "", sys.argv[0]) + '.log',
-                      help="""Log the actions of this script to this file
-                              [ default : %default ]""")
-
-    parser.add_option("-D", "--binddn",
-                        dest = "binddn", default = "",
-                        help = """Use the Distinguished Name to bind [default:
-                        anonymous]. You will be prompted to enter the
-                        associated password.""")
-
-    parser.add_option("-b", "--basedn",
-                      dest="basedn", default="dc=amnh,dc=org",
-                      help="LDAP base dn [default: %default].")
-
-    parser.add_option("-t", "--threshold", dest="threshold",
-                      default=None,
-                      help="""Threshold value in seconds""")
-
-    parser.add_option("-p", "--password", dest="password",
-                    default="",
-                    help="""Bind password""")
-
-    parser.add_option("-i", "--serverID",
-                    dest="serverid",
-                    action="store",
-                    type='int',
-                    help="Compare contextCSN of a specific master. Useful in MultiMaster setups where each master has a unique ID and a contextCSN for each replicated master exists. A valid serverID is a integer value from 0 to 4095 (limited to 3 hex digits, example: '12' compares the contextCSN matching '#00C#')",
-                    default=False)
-
-    (options, args) = parser.parse_args()
-
-    if not options.quiet:
-        logger = create_logger(os.path.basename(sys.argv[0]), options.verbose, options.logfile)
+    if not configs["quite"]:
+        logger = create_logger(os.path.basename(sys.argv[0]), configs["verbose"], configs["logfile"])
     else:
         logger = None
 
     if logger:
         logger.info("====== begin ======")
-        logger.info("Provider is: %s" % re.sub("^.*\/\/", "", args[0]))
+        logger.info("Provider is: %s" % re.sub("^.*\/\/", "", configs["prov"]))
 
-    ldapprov = ldap_connect(args.pop(0), logger, options.binddn, options.password)
+    ldapprov = ldap_connect(configs["prov"], logger, configs["binddn"], configs["passwd"])
 
     if ldapprov:
-        for consumer in args:
+        for consumer in configs["cons"]:
             if logger:
                 logger.info("Checking if consumer %s is in SYNCH with provider" % re.sub("^.*\/\/", "", consumer))
-            ldapcons = ldap_connect(consumer, logger, options.binddn, options.password)
+            ldapcons = ldap_connect(consumer, logger, configs["binddn"], configs["passwd"])
 
             if ldapcons:
-                IsInSync = IsInSync and is_insynch(ldapprov, ldapcons, options.basedn, options.threshold, logger, options.serverid)
+                IsInSync = IsInSync and is_insynch(ldapprov, ldapcons, configs["basedn"], None, logger, configs["serverID"])
                 ldapcons.unbind_s()
                 print(IsInSync)
                 if not IsInSync:
                     create_alert(consumer)
             else:
                 sys.exit()
+
         ldapprov.unbind_s()
+
     else:
         sys.exit(1)
 
