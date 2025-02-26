@@ -1,3 +1,15 @@
+{
+  "name": "my-service-2",
+  "host": "my-service-2",
+  "protocol": "http",
+  "port": 80,
+  "tags": [
+    "user-level"
+  ],
+  "enabled": true
+}
+
+
 #!/usr/bin/env python3
 # use for kong
 # copy service from source kong to target kong
@@ -36,24 +48,26 @@ r = requests.get(url)
 res = json.loads(r.text)
 
 for job in res["data"]:
-    host_name = job["host"]
-    name = job["name"]
+    if job["tags"][0] == "CMD":
+        host_name = job["host"]
+        name = job["name"]
 
-    data = {
-        "host": host_name,
-        "protocol": "http",
-        "name": name,
-        "port": "8000",
-    }
+        data = {
+            "host": host_name,
+            "protocol": "http",
+            "name": name,
+            "port": "8000",
+            "tags": ["CMD"],
+            "enabled": true
+        }
 
     # create service
     url = "{0}/services".format(target_server)
     r = requests.post(url, data=data)
 
-    url = "{0}/services/{1}/routes".format(source_server, name)
-
-    # get route's name
-    r = requests.get(url)
+    # get service's router name
+    router_url = "{0}/services/{1}/routes".format(source_server, name)
+    r = requests.get(router_url)
     route_data = json.loads(r.text)
 
     for i in route_data["data"]:
@@ -64,6 +78,7 @@ for job in res["data"]:
             "paths": route_path,
             "methods": ["GET", "POST"],
             "protocols": ["http"],
+            "tags": ["CMD"]
         }
 
         url = "{0}/services/{1}/routes".format(target_server, name)
