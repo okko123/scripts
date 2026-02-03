@@ -1,0 +1,11 @@
+prov: ldap://192.168.1.10:389
+cons:
+- ldap://192.168.1.20:389
+passwd: example
+basedn: dc=example,dc=cn
+binddn: cn=admin,dc=example,dc=cn
+logfile: check_sync.log
+verbose: False
+quite: False
+serverID: 1
+threshold: 86400
