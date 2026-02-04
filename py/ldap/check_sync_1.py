@@ -35,6 +35,30 @@ def create_logger(application, verbose=None, logfile=None):
 
     return logger
 
+def create_alert(instance):
+    info = [
+        {
+            "labels": {
+                "alertname": "LDAP同步异常",
+                "instance": instance,
+                "severity": "critical",
+                "service": "OpenLDAP"
+            },
+            "annotations": {
+                "info": "LDAP同步异常",
+                "summary": "请检查实例",
+                "env": "stage"
+            }
+        }
+    ]
+
+    headers = {"Content-Type": "application/json"}
+    jsons = json.dumps(info)
+    alert_server = config["alert"]
+    alert_url = f"{alert_server}/api/v2/alerts"
+    r = requests.post(alert_url, headers=headers, data=jsons)
+    return True
+
 def load_config(config_path: str) -> dict:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"配置文件未找到: {config_path}")
@@ -162,6 +186,7 @@ def is_insynch(provldapobj, consldapobj, basedn, threshold=None, logger=None):
                 else:
                     if logger:
                         logger.warn(" Consumer NOT in SYNCH within threshold")
+                    return False
             else:
                 if logger:
                     logger.error("NOT SET threshold")
@@ -169,12 +194,12 @@ def is_insynch(provldapobj, consldapobj, basedn, threshold=None, logger=None):
                 return True
     else:
         if logger:
-            logger.error(" Check failed: at least one ContextCSN value is missing")
+            logger.error(" Check failed: at least one contextCSN value is missing")
     return False
 
 def main():
     if logger:
-        logger.info("===== begin =====")
+        logger.info("====== begin ======")
 
     ldapprov = ldap_connect(
         ldapuri = config['prov'],
@@ -184,7 +209,7 @@ def main():
     )
 
     if ldapprov:
-        for consumer in config['cons']:
+        for consumer in config["cons"]:
             if logger:
                 logger.info(f"Checking if consumer {consumer} is in SYNCH with provider")
 
@@ -198,6 +223,11 @@ def main():
             if ldapcons:
                 IsInSync = is_insynch(ldapprov, ldapcons, config['basedn'], config['threshold'], logger)
                 ldapcons.unbind_s()
+                logger.warn(IsInSync)
+                if not IsInSync:
+                    create_alert(consumer)
+            else:
+                sys.exit()
 
         ldapprov.unbind_s()
     else:
